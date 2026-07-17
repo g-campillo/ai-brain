@@ -1,13 +1,35 @@
 import BrainKit
+import ServiceManagement
 import SwiftUI
 
 struct SettingsView: View {
     @Environment(BrainStore.self) private var store
     @State private var reindexStatus = ""
     @State private var reindexing = false
+    @State private var launchAtLogin = SMAppService.mainApp.status == .enabled
+    @State private var loginItemError = ""
 
     var body: some View {
         Form {
+            Section("General") {
+                Toggle("Launch at login", isOn: $launchAtLogin)
+                    .onChange(of: launchAtLogin) { _, enable in
+                        do {
+                            if enable {
+                                try SMAppService.mainApp.register()
+                            } else {
+                                try SMAppService.mainApp.unregister()
+                            }
+                            loginItemError = ""
+                        } catch {
+                            loginItemError = "\(error.localizedDescription)"
+                            launchAtLogin = SMAppService.mainApp.status == .enabled
+                        }
+                    }
+                if !loginItemError.isEmpty {
+                    Text(loginItemError).font(.caption).foregroundStyle(.red)
+                }
+            }
             Section("Database") {
                 LabeledContent("Path") {
                     Text(BrainDatabase.defaultPath)

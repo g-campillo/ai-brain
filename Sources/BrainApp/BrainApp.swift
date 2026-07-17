@@ -15,6 +15,9 @@ struct BrainApp: App {
                 }
         }
         .defaultSize(width: 1050, height: 640)
+        // Login/background launches land as a menu-bar icon only; open the window
+        // from the brain icon (or by relaunching from Finder/Dock).
+        .defaultLaunchBehavior(.suppressed)
         .commands {
             SidebarCommands()
         }

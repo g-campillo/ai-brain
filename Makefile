@@ -14,4 +14,9 @@ app: release
 	cp Resources/Info.plist Brain.app/Contents/Info.plist
 	codesign --force --sign - Brain.app
 
-.PHONY: build test release install app
+install-app: app
+	rm -rf /Applications/Brain.app
+	ditto Brain.app /Applications/Brain.app
+	@echo "installed /Applications/Brain.app"
+
+.PHONY: build test release install app install-app
