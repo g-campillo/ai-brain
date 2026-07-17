@@ -20,6 +20,33 @@ public struct SearchHit: Sendable {
     public let note: Note
     public let score: Double
     public let snippet: String
+    /// Max cosine of the query against this note's chunks (nil if no embedding).
+    public let vectorSimilarity: Float?
+    /// True when the note matched the precise AND-keyword pattern.
+    public let matchedAllKeywords: Bool
+}
+
+public struct SearchResult: Sendable {
+    public let hits: [SearchHit]
+    /// Distribution of query↔note cosines across the whole (filtered) corpus.
+    /// NLContextualEmbedding is anisotropic — absolute cosines cluster high — so
+    /// relevance gating must use the per-query distribution, not a fixed floor.
+    public let vectorMean: Float
+    public let vectorStd: Float
+    public let vectorCount: Int
+
+    /// Hits confident enough for unsolicited injection (hooks): the note either
+    /// matched every keyword token, or its similarity stands out from this
+    /// query's background distribution by `zThreshold` standard deviations.
+    /// 1.5 is calibrated: measured true rewords score z≈2.0, the best on-topic
+    /// non-answer z≈1.1, and irrelevant prompts' top hits z≤0.7.
+    public func highConfidenceHits(max maxHits: Int = 3, zThreshold: Float = 1.5) -> [SearchHit] {
+        hits.prefix(maxHits).filter { hit in
+            if hit.matchedAllKeywords { return true }
+            guard vectorCount >= 20, vectorStd > 1e-4, let sim = hit.vectorSimilarity else { return false }
+            return (sim - vectorMean) / vectorStd >= zThreshold
+        }
+    }
 }
 
 extension BrainDatabase {
@@ -38,7 +65,7 @@ extension BrainDatabase {
         k: Int = 5,
         filters: SearchFilters = SearchFilters(),
         embedder: Embedder?
-    ) throws -> [SearchHit] {
+    ) throws -> SearchResult {
         var conditions = ["n.status = 'active'"]
         var args: [DatabaseValueConvertible?] = []
         if let type = filters.type { conditions.append("n.type = ?"); args.append(type.rawValue) }
@@ -49,12 +76,12 @@ extension BrainDatabase {
 
         // Keyword leg: AND-match for precision, OR-match fallback for recall.
         var keywordRanked: [Int64] = []
+        var andMatched: Set<Int64> = []
         var snippets: [Int64: String] = [:]
-        let patterns = [
-            FTS5Pattern(matchingAllTokensIn: query),
-            FTS5Pattern(matchingAnyTokenIn: query),
-        ].compactMap(\.self)
-        for pattern in patterns where keywordRanked.isEmpty {
+        let andPattern = FTS5Pattern(matchingAllTokensIn: query)
+        let orPattern = FTS5Pattern(matchingAnyTokenIn: query)
+        for (pattern, isAnd) in [(andPattern, true), (orPattern, false)].compactMap({ p, a in p.map { ($0, a) } })
+        where keywordRanked.isEmpty {
             let rows = try pool.read { db in
                 try Row.fetchAll(db, sql: """
                     SELECT n.id AS id, snippet(note_fts, 1, '', '', ' … ', 24) AS snip
@@ -66,12 +93,14 @@ extension BrainDatabase {
                     """, arguments: StatementArguments([pattern as DatabaseValueConvertible?] + args))
             }
             keywordRanked = rows.map { $0["id"] }
+            if isAnd { andMatched = Set(keywordRanked) }
             for row in rows { snippets[row["id"]] = row["snip"] }
         }
 
         // Vector leg: brute-force cosine (vectors are L2-normalized, so dot == cosine).
         // ponytail: full scan per query; add ANN + in-memory cache if notes exceed ~100k.
         var vectorRanked: [Int64] = []
+        var similarity: [Int64: Float] = [:]
         if let embedder {
             let queryVector = try embedder.embed(query)
             let rows = try pool.read { db in
@@ -81,20 +110,22 @@ extension BrainDatabase {
                     WHERE \(whereSQL)
                     """, arguments: StatementArguments(args))
             }
-            var bestPerNote: [Int64: Float] = [:]
             for row in rows {
                 let vector = [Float](data: row["v"])
                 guard vector.count == queryVector.count else { continue }
                 var dot: Float = 0
                 vDSP_dotpr(vector, 1, queryVector, 1, &dot, vDSP_Length(vector.count))
                 let id: Int64 = row["id"]
-                bestPerNote[id] = max(bestPerNote[id] ?? -.infinity, dot)
+                similarity[id] = Swift.max(similarity[id] ?? -.infinity, dot)
             }
-            vectorRanked = bestPerNote
+            vectorRanked = similarity
                 .sorted { ($0.value, $1.key) > ($1.value, $0.key) }
                 .prefix(50)
                 .map(\.key)
         }
+        let sims = Array(similarity.values)
+        let mean = sims.isEmpty ? 0 : sims.reduce(0, +) / Float(sims.count)
+        let std = sims.count < 2 ? 0 : (sims.reduce(0) { $0 + ($1 - mean) * ($1 - mean) } / Float(sims.count - 1)).squareRoot()
 
         // Weighted reciprocal rank fusion, deterministic tiebreak on id.
         var fused: [Int64: Double] = [:]
@@ -104,13 +135,19 @@ extension BrainDatabase {
             .sorted { ($0.value, Double($1.key)) > ($1.value, Double($0.key)) }
             .prefix(k)
             .map(\.key)
-        guard !topIDs.isEmpty else { return [] }
 
-        let notes = try pool.read { db in try Note.fetchAll(db, keys: topIDs) }
+        let notes = topIDs.isEmpty ? [] : try pool.read { db in try Note.fetchAll(db, keys: topIDs) }
         let byID = Dictionary(uniqueKeysWithValues: notes.compactMap { note in note.id.map { ($0, note) } })
-        return topIDs.compactMap { id in
+        let hits: [SearchHit] = topIDs.compactMap { id in
             guard let note = byID[id] else { return nil }
-            return SearchHit(note: note, score: fused[id] ?? 0, snippet: snippets[id] ?? String(note.body.prefix(200)))
+            return SearchHit(
+                note: note,
+                score: fused[id] ?? 0,
+                snippet: snippets[id] ?? String(note.body.prefix(200)),
+                vectorSimilarity: similarity[id],
+                matchedAllKeywords: andMatched.contains(id)
+            )
         }
+        return SearchResult(hits: hits, vectorMean: mean, vectorStd: std, vectorCount: sims.count)
     }
 }

@@ -113,7 +113,7 @@ enum BrainTools {
         switch params.name {
         case "brain_search":
             guard let query = args["query"]?.stringValue else { throw ToolError.missing("query") }
-            let hits = try db.search(query, k: args["k"]?.intValue ?? 5, filters: filters(from: args), embedder: embedder)
+            let hits = try db.search(query, k: args["k"]?.intValue ?? 5, filters: filters(from: args), embedder: embedder).hits
             guard !hits.isEmpty else { return "No notes found for '\(query)'." }
             return hits.map { hit in
                 "[id \(hit.note.id ?? 0) · \(hit.note.type.rawValue)\(hit.note.site.map { " · \($0)" } ?? "")] \(hit.note.title)\n  \(hit.snippet.replacingOccurrences(of: "\n", with: " "))"

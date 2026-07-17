@@ -97,7 +97,7 @@ import Testing
             ("backups deleted by s3 lifecycle expiration", "S3 lifecycle rule deleted backups"),
         ]
         for (query, expectedTitle) in needleQueries {
-            let hits = try db.search(query, k: 5, embedder: embedder)
+            let hits = try db.search(query, k: 5, embedder: embedder).hits
             #expect(
                 hits.prefix(3).contains { $0.note.title == expectedTitle },
                 "needle '\(expectedTitle)' missing from top-3 for '\(query)': got \(hits.map(\.note.title))"

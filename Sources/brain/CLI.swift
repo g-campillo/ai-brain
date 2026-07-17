@@ -24,10 +24,11 @@ struct SearchCommand: AsyncParsableCommand {
     func run() async throws {
         let db = try BrainDatabase.open()
         let embedder = keywordOnly ? nil : try await Embedder.ready()
-        let hits = try db.search(query, k: k, embedder: embedder)
-        if hits.isEmpty { print("no hits") }
-        for hit in hits {
-            print("[\(hit.note.id ?? 0) · \(hit.note.type.rawValue) · \(String(format: "%.4f", hit.score))] \(hit.note.title)")
+        let result = try db.search(query, k: k, embedder: embedder)
+        if result.hits.isEmpty { print("no hits") }
+        for hit in result.hits {
+            let sim = hit.vectorSimilarity.map { String(format: "%.3f", $0) } ?? "-"
+            print("[\(hit.note.id ?? 0) · \(hit.note.type.rawValue) · rrf \(String(format: "%.4f", hit.score)) · sim \(sim)\(hit.matchedAllKeywords ? " · kw" : "")] \(hit.note.title)")
             print("  \(hit.snippet.replacingOccurrences(of: "\n", with: " "))")
         }
     }
