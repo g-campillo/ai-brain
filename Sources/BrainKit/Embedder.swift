@@ -4,7 +4,7 @@ import NaturalLanguage
 public enum BrainError: Error {
     case embeddingModelUnavailable
     case emptyEmbedding
-    case foundationModelsUnavailable
+    case foundationModelsUnavailable(reason: String)
 }
 
 /// Text → L2-normalized sentence vector via Apple's on-device NLContextualEmbedding.

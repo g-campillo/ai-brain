@@ -7,7 +7,10 @@ struct Brain: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "brain",
         abstract: "Persistent knowledge base for Claude — MCP server, hooks, and admin tools.",
-        subcommands: [MCPCommand.self, SearchCommand.self, BriefCommand.self, IndexCommand.self]
+        subcommands: [
+            MCPCommand.self, SearchCommand.self, BriefCommand.self,
+            IndexCommand.self, HarvestCommand.self, InstallCommand.self,
+        ]
     )
 }
 
@@ -17,11 +20,16 @@ struct SearchCommand: AsyncParsableCommand {
         abstract: "Query the brain (debug and hook entry point)."
     )
 
-    @Option(name: .shortAndLong, help: "Query text.") var query: String
+    @Option(name: .shortAndLong, help: "Query text.") var query: String = ""
     @Option(name: .shortAndLong, help: "Max hits.") var k: Int = 5
     @Flag(help: "Keyword-only (skip the embedding model).") var keywordOnly = false
+    @Flag(help: "UserPromptSubmit hook mode: JSON on stdin, additionalContext JSON out.") var hook = false
 
     func run() async throws {
+        if hook {
+            await runPromptHook()
+            return
+        }
         let db = try BrainDatabase.open()
         let embedder = keywordOnly ? nil : try await Embedder.ready()
         let result = try db.search(query, k: k, embedder: embedder)

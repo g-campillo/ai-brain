@@ -84,8 +84,17 @@ public enum Harvester {
     /// Returns inbox-status notes extracted from the transcript, or [] when the
     /// session held nothing durable. Throws if Foundation Models is unavailable.
     public static func harvest(transcriptJSONL: String, projectSlug: String?) async throws -> [Note] {
-        guard case .available = SystemLanguageModel.default.availability else {
-            throw BrainError.foundationModelsUnavailable
+        switch SystemLanguageModel.default.availability {
+        case .available:
+            break
+        case .unavailable(.appleIntelligenceNotEnabled):
+            throw BrainError.foundationModelsUnavailable(reason: "Apple Intelligence is not enabled — turn it on in System Settings > Apple Intelligence & Siri to activate session harvesting")
+        case .unavailable(.deviceNotEligible):
+            throw BrainError.foundationModelsUnavailable(reason: "device not eligible for Apple Intelligence")
+        case .unavailable(.modelNotReady):
+            throw BrainError.foundationModelsUnavailable(reason: "model assets still downloading — try again later")
+        case .unavailable(let other):
+            throw BrainError.foundationModelsUnavailable(reason: "\(other)")
         }
         let excerpt = salientExcerpt(fromJSONL: transcriptJSONL)
         guard excerpt.count > 200 else { return [] } // nothing substantive happened
