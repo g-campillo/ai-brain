@@ -7,7 +7,9 @@ let package = Package(
     products: [
         .library(name: "BrainKit", targets: ["BrainKit"]),
         .executable(name: "brain", targets: ["brain"]),
-        .executable(name: "Brain", targets: ["BrainApp"]),
+        // Named BrainApp (not Brain): macOS filesystems are case-insensitive, so a
+        // product "Brain" would clobber the "brain" CLI in .build/release/.
+        .executable(name: "BrainApp", targets: ["BrainApp"]),
     ],
     dependencies: [
         .package(url: "https://github.com/groue/GRDB.swift.git", from: "7.0.0"),
