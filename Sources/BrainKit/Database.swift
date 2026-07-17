@@ -6,9 +6,11 @@ import GRDB
 public struct BrainDatabase: Sendable {
     public let pool: DatabasePool
 
-    public static let defaultPath = FileManager.default
-        .urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-        .appendingPathComponent("Brain/brain.db").path
+    /// Overridable via BRAIN_DB for tests and side-by-side experiments.
+    public static let defaultPath = ProcessInfo.processInfo.environment["BRAIN_DB"]
+        ?? FileManager.default
+            .urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("Brain/brain.db").path
 
     public static func open(atPath path: String = defaultPath) throws -> BrainDatabase {
         try FileManager.default.createDirectory(
@@ -82,6 +84,21 @@ public struct BrainDatabase: Sendable {
         _ = try pool.write { db in try Note.deleteOne(db, key: id) }
     }
 
+    /// Newest active notes first, optionally filtered.
+    public func recent(_ n: Int = 10, filters: SearchFilters = SearchFilters()) throws -> [Note] {
+        try pool.read { db in
+            var request = Note
+                .filter(Column("status") == NoteStatus.active.rawValue)
+                .order(Column("updatedAt").desc, Column("id").desc)
+                .limit(n)
+            if let type = filters.type { request = request.filter(Column("type") == type.rawValue) }
+            if let project = filters.project { request = request.filter(Column("project") == project) }
+            if let site = filters.site { request = request.filter(Column("site") == site) }
+            if let tag = filters.tag { request = request.filter(Column("tags").like("%\"\(tag)\"%")) }
+            return try request.fetchAll(db)
+        }
+    }
+
     // MARK: - Embeddings
 
     /// Replaces all embedding chunks for a note.
@@ -94,6 +111,21 @@ public struct BrainDatabase: Sendable {
             for (idx, vector) in vectors.enumerated() {
                 try statement.execute(arguments: [noteID, idx, Data(vector: vector), modelVersion])
             }
+        }
+    }
+
+    public func deleteAllEmbeddings() throws {
+        try pool.write { db in try db.execute(sql: "DELETE FROM embedding") }
+    }
+
+    /// Notes whose embeddings are absent or produced by a different model.
+    public func notesNeedingEmbedding(modelVersion: String) throws -> [Note] {
+        try pool.read { db in
+            try Note.fetchAll(db, sql: """
+                SELECT n.* FROM note n
+                LEFT JOIN embedding e ON e.noteId = n.id AND e.modelVersion = ?
+                WHERE e.noteId IS NULL
+                """, arguments: [modelVersion])
         }
     }
 

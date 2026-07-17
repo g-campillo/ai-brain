@@ -70,4 +70,20 @@ import Testing
         try db.deleteNote(id: id)
         #expect(try db.embeddings(noteID: id).isEmpty)
     }
+
+    @Test func notesNeedingEmbeddingFindsMissingAndStale() throws {
+        let db = try tempDB()
+
+        var fresh = Note(type: .snippet, title: "fresh", body: "a")
+        var stale = Note(type: .snippet, title: "stale", body: "b")
+        var missing = Note(type: .snippet, title: "missing", body: "c")
+        try db.save(&fresh)
+        try db.save(&stale)
+        try db.save(&missing)
+        try db.saveEmbeddings(noteID: fresh.id!, vectors: [[1]], modelVersion: "current")
+        try db.saveEmbeddings(noteID: stale.id!, vectors: [[1]], modelVersion: "old")
+
+        let needing = try db.notesNeedingEmbedding(modelVersion: "current")
+        #expect(Set(needing.map(\.title)) == ["stale", "missing"])
+    }
 }

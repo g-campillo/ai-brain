@@ -7,8 +7,12 @@ public enum BrainError: Error {
 }
 
 /// Text → L2-normalized sentence vector via Apple's on-device NLContextualEmbedding.
-public final class Embedder {
+///
+/// @unchecked Sendable: NLContextualEmbedding's thread safety is undocumented,
+/// so all model access is serialized behind `lock`.
+public final class Embedder: @unchecked Sendable {
     private let model: NLContextualEmbedding
+    private let lock = NSLock()
     public let dimension: Int
     /// Identifies which model produced a stored vector; mismatches mean "re-embed".
     public let modelVersion: String
@@ -33,6 +37,8 @@ public final class Embedder {
 
     /// Mean-pools token vectors, then L2-normalizes so cosine reduces to a dot product downstream.
     public func embed(_ text: String) throws -> [Float] {
+        lock.lock()
+        defer { lock.unlock() }
         let result = try model.embeddingResult(for: text, language: .english)
         var sum = [Double](repeating: 0, count: dimension)
         var tokens = 0
