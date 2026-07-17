@@ -10,6 +10,8 @@ public enum BrainError: Error {
 public final class Embedder {
     private let model: NLContextualEmbedding
     public let dimension: Int
+    /// Identifies which model produced a stored vector; mismatches mean "re-embed".
+    public let modelVersion: String
 
     /// Loads the English contextual embedding model, downloading its assets on first use.
     public static func ready() async throws -> Embedder {
@@ -26,6 +28,7 @@ public final class Embedder {
     private init(model: NLContextualEmbedding) {
         self.model = model
         self.dimension = model.dimension
+        self.modelVersion = "\(model.modelIdentifier)-r\(model.revision)"
     }
 
     /// Mean-pools token vectors, then L2-normalizes so cosine reduces to a dot product downstream.
