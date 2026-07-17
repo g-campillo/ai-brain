@@ -113,10 +113,12 @@ struct HarvestCommand: AsyncParsableCommand {
             let offset = Int((try? String(contentsOf: marker, encoding: .utf8)) ?? "") ?? 0
             guard jsonl.count - offset >= Self.minNewBytes else { return }
             let newSlice = String(jsonl.suffix(jsonl.count - min(offset, jsonl.count)))
-            try? String(jsonl.count).write(to: marker, atomically: true, encoding: .utf8)
 
             let slug = input.cwd.map { ($0 as NSString).lastPathComponent }
             var notes = try await Harvester.harvest(transcriptJSONL: newSlice, projectSlug: slug)
+            // Advance the throttle marker only after a successful inference pass —
+            // a failed harvest (e.g. model unavailable) must not skip this content forever.
+            try? String(jsonl.count).write(to: marker, atomically: true, encoding: .utf8)
             guard !notes.isEmpty else {
                 hookLog("harvest: nothing durable in session \(input.session_id)")
                 return
