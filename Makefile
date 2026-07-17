@@ -6,4 +6,12 @@ build: ; $(SWIFT) build
 test: ; $(SWIFT) test
 release: ; $(SWIFT) build -c release
 install: release ; .build/release/brain install
-.PHONY: build test release install
+
+app: release
+	rm -rf Brain.app
+	mkdir -p Brain.app/Contents/MacOS
+	cp .build/release/Brain Brain.app/Contents/MacOS/Brain
+	cp Resources/Info.plist Brain.app/Contents/Info.plist
+	codesign --force --sign - Brain.app
+
+.PHONY: build test release install app

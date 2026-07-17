@@ -7,6 +7,7 @@ let package = Package(
     products: [
         .library(name: "BrainKit", targets: ["BrainKit"]),
         .executable(name: "brain", targets: ["brain"]),
+        .executable(name: "Brain", targets: ["BrainApp"]),
     ],
     dependencies: [
         .package(url: "https://github.com/groue/GRDB.swift.git", from: "7.0.0"),
@@ -26,6 +27,7 @@ let package = Package(
                 .product(name: "MCP", package: "swift-sdk"),
             ]
         ),
+        .executableTarget(name: "BrainApp", dependencies: ["BrainKit"]),
         .testTarget(name: "BrainKitTests", dependencies: ["BrainKit"]),
     ]
 )
