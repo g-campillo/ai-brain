@@ -96,7 +96,16 @@ struct HarvestCommand: AsyncParsableCommand {
     /// Minimum new transcript bytes before a harvest is worth an inference pass.
     static let minNewBytes = 3000
 
+    @Option(help: "Debug: harvest this transcript file directly instead of reading Stop-hook JSON from stdin.")
+    var transcript: String?
+    @Flag(help: "Debug: print the distilled excerpt and candidates without saving.")
+    var dryRun = false
+
     func run() async {
+        if let transcript {
+            await debugRun(transcriptPath: transcript)
+            return
+        }
         do {
             let data = try FileHandle.standardInput.readToEnd() ?? Data()
             let input = try JSONDecoder().decode(StopHookInput.self, from: data)
@@ -133,6 +142,30 @@ struct HarvestCommand: AsyncParsableCommand {
             hookLog("harvest: \(notes.count) inbox candidate(s) from session \(input.session_id): \(notes.map(\.title).joined(separator: " | "))")
         } catch {
             hookLog("harvest failed: \(error)")
+        }
+    }
+
+    private func debugRun(transcriptPath: String) async {
+        do {
+            let jsonl = try String(contentsOfFile: transcriptPath, encoding: .utf8)
+            let excerpt = Harvester.salientExcerpt(fromJSONL: jsonl)
+            print("=== EXCERPT (\(excerpt.count) chars) ===\n\(excerpt)\n=== END EXCERPT ===")
+            let notes = try await Harvester.harvest(transcriptJSONL: jsonl, projectSlug: "debug")
+            print("=== CANDIDATES: \(notes.count) ===")
+            for note in notes {
+                print("[\(note.type.rawValue)] \(note.title)\n\(note.body)\n")
+            }
+            if !dryRun, !notes.isEmpty {
+                let db = try BrainDatabase.open()
+                let embedder = try await Embedder.ready()
+                for var note in notes {
+                    try db.save(&note)
+                    try db.indexEmbeddings(for: note, using: embedder)
+                }
+                print("saved \(notes.count) note(s)")
+            }
+        } catch {
+            print("debug harvest failed: \(error)")
         }
     }
 }

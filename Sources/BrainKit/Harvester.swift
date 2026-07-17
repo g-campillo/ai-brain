@@ -17,11 +17,34 @@ public enum Harvester {
                     let type: String
                     let text: String?
                 }
+                /// Claude Code stores typed prompts as a plain string and model
+                /// output as block arrays — accept both.
+                enum Body: Decodable {
+                    case text(String)
+                    case blocks([Content])
+
+                    init(from decoder: Decoder) throws {
+                        let container = try decoder.singleValueContainer()
+                        if let string = try? container.decode(String.self) {
+                            self = .text(string)
+                        } else {
+                            self = .blocks(try container.decode([Content].self))
+                        }
+                    }
+
+                    var plainText: String {
+                        switch self {
+                        case .text(let string): string
+                        case .blocks(let blocks): blocks.compactMap { $0.type == "text" ? $0.text : nil }.joined(separator: "\n")
+                        }
+                    }
+                }
                 let role: String?
-                let content: [Content]?
+                let content: Body?
             }
-            // Envelope shape: {"type":"user","message":{"content":[{"type":"text",...}]}}
+            // Envelope shape: {"type":"user","message":{...}}
             let type: String?
+            let isMeta: Bool?
             let message: Message?
             // Flat shape: {"role":"user","content":"..."}
             let role: String?
@@ -31,14 +54,15 @@ public enum Harvester {
         var entries: [(speaker: String, text: String)] = []
         for raw in jsonl.split(separator: "\n") {
             guard let data = raw.data(using: .utf8),
-                  let line = try? JSONDecoder().decode(Line.self, from: data)
+                  let line = try? JSONDecoder().decode(Line.self, from: data),
+                  line.isMeta != true
             else { continue }
 
             let speaker: String
             let text: String
-            if let type = line.type, type == "user" || type == "assistant", let blocks = line.message?.content {
+            if let type = line.type, type == "user" || type == "assistant", let body = line.message?.content {
                 speaker = type == "user" ? "USER" : "ASSISTANT"
-                text = blocks.compactMap { $0.type == "text" ? $0.text : nil }.joined(separator: "\n")
+                text = body.plainText
             } else if let role = line.role, role == "user" || role == "assistant", let flat = line.content {
                 speaker = role == "user" ? "USER" : "ASSISTANT"
                 text = flat
@@ -50,10 +74,11 @@ public enum Harvester {
         }
 
         // Newest exchanges carry the resolution; keep them when over budget.
+        // Per-entry cap keeps the TAIL of long texts — that's where fixes live.
         var kept: [String] = []
         var used = 0
         for entry in entries.reversed() {
-            let block = "\(entry.speaker): \(entry.text.prefix(1500))\n"
+            let block = "\(entry.speaker): \(entry.text.suffix(2500))\n"
             if used + block.count > budget { continue }
             kept.append(block)
             used += block.count

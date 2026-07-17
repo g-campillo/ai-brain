@@ -43,6 +43,32 @@ import Testing
         #expect(excerpt.contains("real content"))
     }
 
+    @Test func parsesEnvelopeWithPlainStringContent() {
+        // Real Claude Code transcripts: typed user prompts have message.content as a
+        // STRING; assistant messages use block arrays. Both must be captured.
+        let jsonl = [
+            #"{"type":"user","message":{"role":"user","content":"why is the exporter dropping rows"}}"#,
+            line("assistant", "Because the drain interval exceeds the TTL. Set it to 60."),
+        ].joined(separator: "\n")
+        let excerpt = Harvester.salientExcerpt(fromJSONL: jsonl)
+        #expect(excerpt.contains("USER: why is the exporter dropping rows"))
+        #expect(excerpt.contains("drain interval exceeds the TTL"))
+    }
+
+    @Test func skipsMetaLinesAndKeepsLongFinalAnswerMostlyIntact() {
+        let finalAnswer = "The fix: " + String(repeating: "detail ", count: 300) + "END-OF-FIX"
+        let jsonl = [
+            #"{"type":"user","isMeta":true,"message":{"role":"user","content":"<system-injected>noise</system-injected>"}}"#,
+            #"{"type":"user","message":{"role":"user","content":"real question"}}"#,
+            line("assistant", finalAnswer),
+        ].joined(separator: "\n")
+        let excerpt = Harvester.salientExcerpt(fromJSONL: jsonl)
+        #expect(!excerpt.contains("system-injected"))
+        #expect(excerpt.contains("real question"))
+        // ~2100-char answer survives the per-entry cap far enough to keep the tail.
+        #expect(excerpt.contains("END-OF-FIX"))
+    }
+
     @Test func alsoParsesSimpleRoleContentShape() {
         // The docs describe flat {"role","content"} lines; real transcripts use the
         // envelope shape. Support both.
