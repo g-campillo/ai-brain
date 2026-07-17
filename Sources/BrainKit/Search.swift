@@ -24,6 +24,9 @@ public struct SearchHit: Sendable {
     public let vectorSimilarity: Float?
     /// True when the note matched the precise AND-keyword pattern.
     public let matchedAllKeywords: Bool
+    /// Long (≥8 char) query tokens found in the note — identifiers, error names,
+    /// hostnames. Strong relevance evidence even when the corpus is tiny.
+    public let distinctiveTokenMatches: [String]
 }
 
 public struct SearchResult: Sendable {
@@ -35,14 +38,19 @@ public struct SearchResult: Sendable {
     public let vectorStd: Float
     public let vectorCount: Int
 
-    /// Hits confident enough for unsolicited injection (hooks): the note either
-    /// matched every keyword token, or its similarity stands out from this
-    /// query's background distribution by `zThreshold` standard deviations.
-    /// 1.5 is calibrated: measured true rewords score z≈2.0, the best on-topic
-    /// non-answer z≈1.1, and irrelevant prompts' top hits z≤0.7.
+    /// Hits confident enough for unsolicited injection (hooks). Three evidence
+    /// paths, any suffices:
+    /// 1. Every query token matched (terse keyword queries).
+    /// 2. Distinctive-token overlap: ≥2 long tokens, or one ≥12 chars
+    ///    (identifiers/error names) — works even in a tiny corpus.
+    /// 3. Similarity z-score ≥ `zThreshold` against this query's own corpus
+    ///    distribution (needs ≥20 embedded notes). 1.5 is calibrated: true
+    ///    rewords ≈2.0, best on-topic non-answer ≈1.1, irrelevant ≤0.7.
     public func highConfidenceHits(max maxHits: Int = 3, zThreshold: Float = 1.5) -> [SearchHit] {
         hits.prefix(maxHits).filter { hit in
             if hit.matchedAllKeywords { return true }
+            if hit.distinctiveTokenMatches.count >= 2 { return true }
+            if hit.distinctiveTokenMatches.contains(where: { $0.count >= 12 }) { return true }
             guard vectorCount >= 20, vectorStd > 1e-4, let sim = hit.vectorSimilarity else { return false }
             return (sim - vectorMean) / vectorStd >= zThreshold
         }
@@ -138,14 +146,25 @@ extension BrainDatabase {
 
         let notes = topIDs.isEmpty ? [] : try pool.read { db in try Note.fetchAll(db, keys: topIDs) }
         let byID = Dictionary(uniqueKeysWithValues: notes.compactMap { note in note.id.map { ($0, note) } })
+
+        // Long tokens (identifiers, error names, hostnames) from the query.
+        let distinctiveTokens = Set(
+            query.lowercased()
+                .split(whereSeparator: { !$0.isLetter && !$0.isNumber })
+                .filter { $0.count >= 8 }
+                .map(String.init)
+        )
+
         let hits: [SearchHit] = topIDs.compactMap { id in
             guard let note = byID[id] else { return nil }
+            let noteText = "\(note.title) \(note.body) \(note.tags.joined(separator: " "))".lowercased()
             return SearchHit(
                 note: note,
                 score: fused[id] ?? 0,
                 snippet: snippets[id] ?? String(note.body.prefix(200)),
                 vectorSimilarity: similarity[id],
-                matchedAllKeywords: andMatched.contains(id)
+                matchedAllKeywords: andMatched.contains(id),
+                distinctiveTokenMatches: distinctiveTokens.filter(noteText.contains).sorted()
             )
         }
         return SearchResult(hits: hits, vectorMean: mean, vectorStd: std, vectorCount: sims.count)

@@ -134,6 +134,36 @@ import Testing
         #expect(confident.contains { $0.note.title == "Publish times out during deployment" })
     }
 
+    @Test func proseWithDistinctiveTokensPassesGateInTinyCorpus() async throws {
+        let embedder = try await Embedder.ready()
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let db = try BrainDatabase.open(atPath: dir.appendingPathComponent("brain.db").path)
+        var note = Note(
+            type: .troubleshooting,
+            title: "Swift macro error: external macro implementation not found",
+            body: "Build fails: external macro implementation type FoundationModelsMacros.GenerableMacro could not be found. Fix: build with /usr/bin/swift.",
+            tags: ["toolchain"]
+        )
+        try db.save(&note)
+        try db.indexEmbeddings(for: note, using: embedder)
+
+        // Natural prose around the distinctive identifiers — full-sentence AND can
+        // never match this, and a 1-note corpus has no z distribution.
+        let result = try db.search(
+            "hey, my build is failing with some error about FoundationModelsMacros and a GenerableMacro plugin that could not be found, any idea what is going on?",
+            embedder: embedder
+        )
+        #expect(result.highConfidenceHits().contains { $0.note.id == note.id })
+
+        // Prose with no distinctive overlap stays silent.
+        let noise = try db.search(
+            "thinking about refactoring the navigation sidebar animations for the settings screen later today",
+            embedder: embedder
+        )
+        #expect(noise.highConfidenceHits().isEmpty)
+    }
+
     @Test func exactKeywordMatchPassesGateEvenInTinyCorpus() async throws {
         let embedder = try await Embedder.ready()
         let db = try seededDB(embedder: embedder) // only 3 active notes

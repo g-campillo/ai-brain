@@ -10,6 +10,7 @@ struct Brain: AsyncParsableCommand {
         subcommands: [
             MCPCommand.self, SearchCommand.self, BriefCommand.self,
             IndexCommand.self, HarvestCommand.self, InstallCommand.self,
+            ExportCommand.self,
         ]
     )
 }
@@ -55,6 +56,21 @@ struct BriefCommand: AsyncParsableCommand {
         if let brief = try db.brief(forProjectPath: cwd) {
             print(brief)
         }
+    }
+}
+
+struct ExportCommand: AsyncParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "export",
+        abstract: "Dump every note as markdown files (lock-in insurance)."
+    )
+
+    @Option(help: "Output directory.") var out: String = NSHomeDirectory() + "/Brain-export"
+
+    func run() async throws {
+        let db = try BrainDatabase.open()
+        let count = try db.exportMarkdown(to: URL(fileURLWithPath: out))
+        print("exported \(count) note(s) to \(out)")
     }
 }
 
