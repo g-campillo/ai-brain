@@ -6,7 +6,7 @@ public enum NoteSource: String, Codable, Sendable {
 }
 
 public enum NoteStatus: String, Codable, Sendable {
-    case inbox, active, archived
+    case active, archived
 }
 
 public struct Note: Codable, Identifiable, Sendable, FetchableRecord, MutablePersistableRecord {

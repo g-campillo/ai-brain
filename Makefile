@@ -1,5 +1,4 @@
-# Foundation Models' @Generable macro ships only with Xcode's toolchain;
-# the swiftly/swift.org toolchain on PATH cannot build this package.
+# Xcode's bundled toolchain — immune to whatever swiftly/swift.org toolchain is on PATH.
 SWIFT := /usr/bin/swift
 
 build: ; $(SWIFT) build

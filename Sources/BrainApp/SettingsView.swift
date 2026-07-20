@@ -37,7 +37,7 @@ struct SettingsView: View {
                         .font(.caption)
                 }
                 let counts = store.counts()
-                LabeledContent("Notes", value: "\(counts.active) active · \(counts.inbox) inbox · \(counts.archived) archived")
+                LabeledContent("Notes", value: "\(counts.active) active · \(counts.archived) archived")
             }
 
             Section("Search") {
@@ -56,11 +56,6 @@ struct SettingsView: View {
                     .disabled(reindexing)
                     Text(reindexStatus).font(.caption).foregroundStyle(.secondary)
                 }
-            }
-
-            Section("Session harvesting (Apple Intelligence)") {
-                Text(store.foundationModelsStatus)
-                    .font(.callout)
             }
 
             Section("Claude Code wiring") {

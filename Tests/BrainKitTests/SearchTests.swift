@@ -17,6 +17,17 @@ import Testing
         #expect(chunks.allSatisfy { $0.hasPrefix("Runbook") })
         #expect(chunks.allSatisfy { $0.count <= 1500 })
     }
+
+    @Test func oversizeSectionSplitsByParagraphWithoutDroppingTail() {
+        let para = String(repeating: "alpha ", count: 130).trimmingCharacters(in: .whitespaces) // ~780 chars
+        let body = "## Log\n\(para)\n\n\(para)\n\n\(para) SENTINEL"
+        let chunks = Chunker.chunks(title: "Big session", body: body, maxChars: 1500)
+        #expect(chunks.count >= 2)
+        #expect(chunks.allSatisfy { $0.count <= 1500 })
+        #expect(chunks.allSatisfy { $0.hasPrefix("Big session") })
+        // The old chunker hard-truncated the section at 1500 chars and lost this tail.
+        #expect(chunks.contains { $0.contains("SENTINEL") })
+    }
 }
 
 @Suite struct SearchTests {

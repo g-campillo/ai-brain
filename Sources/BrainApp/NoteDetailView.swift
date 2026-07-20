@@ -17,10 +17,6 @@ struct NoteDetailView: View {
             }
         }
         .toolbar {
-            if note.status == .inbox {
-                Button("Promote", systemImage: "checkmark.circle") { store.promote(note) }
-                    .help("Make this harvested note searchable")
-            }
             Button(editing ? "Done" : "Edit", systemImage: editing ? "checkmark" : "pencil") {
                 if editing {
                     var toSave = draft

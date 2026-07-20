@@ -1,12 +1,11 @@
 import BrainKit
 import Foundation
-import FoundationModels
 import Observation
 
 enum SidebarItem: Hashable {
     case all
-    case inbox
     case playground
+    case recall
     case type(NoteType)
 }
 
@@ -18,24 +17,9 @@ final class BrainStore {
 
     var sidebar: SidebarItem = .all
     var notes: [Note] = []
-    var inboxNotes: [Note] = []
+    var recallEvents: [RecallEvent] = []
     var selection: Set<Note.ID> = []
     var errorMessage: String?
-
-    var inboxCount: Int { inboxNotes.count }
-
-    var foundationModelsStatus: String {
-        switch SystemLanguageModel.default.availability {
-        case .available:
-            "Available — session harvesting is active."
-        case .unavailable(.appleIntelligenceNotEnabled):
-            "Apple Intelligence is OFF. Enable it in System Settings > Apple Intelligence & Siri to activate session harvesting."
-        case .unavailable(.modelNotReady):
-            "Model assets downloading — harvesting will activate when ready."
-        case .unavailable(let reason):
-            "Unavailable (\(String(describing: reason)))."
-        }
-    }
 
     init() {
         do {
@@ -53,16 +37,13 @@ final class BrainStore {
     /// ponytail: no cross-process observation; hook-written notes appear on next activation.
     func refresh() {
         do {
-            inboxNotes = try db.pool.read { db in
-                try Note.filter(sql: "status = 'inbox'").order(sql: "updatedAt DESC").fetchAll(db)
-            }
             switch sidebar {
             case .all:
                 notes = try db.recent(500)
             case .type(let type):
                 notes = try db.recent(500, filters: SearchFilters(type: type))
-            case .inbox:
-                notes = inboxNotes
+            case .recall:
+                recallEvents = try db.recentRecallEvents(200)
             case .playground:
                 break
             }
@@ -73,15 +54,14 @@ final class BrainStore {
 
     func selectedNote() -> Note? {
         guard let id = selection.first ?? nil else { return nil }
-        return (notes + inboxNotes).first { $0.id == id }
+        return notes.first { $0.id == id }
     }
 
     // MARK: - Mutations
 
     func save(_ note: inout Note) {
         do {
-            try db.save(&note)
-            if let embedder { try db.indexEmbeddings(for: note, using: embedder) }
+            try db.save(&note, reindexingWith: embedder)
             refresh()
         } catch {
             errorMessage = "\(error)"
@@ -93,12 +73,6 @@ final class BrainStore {
         save(&draft)
         if let id = draft.id { selection = [id] }
         return draft
-    }
-
-    func promote(_ note: Note) {
-        var updated = note
-        updated.status = .active
-        save(&updated)
     }
 
     func archive(_ note: Note) {
@@ -145,20 +119,19 @@ final class BrainStore {
         }
     }
 
-    func counts() -> (active: Int, inbox: Int, archived: Int) {
+    func counts() -> (active: Int, archived: Int) {
         let rows = (try? db.pool.read { db in
             try Row.fetchAll(db, sql: "SELECT status, COUNT(*) AS c FROM note GROUP BY status")
         }) ?? []
-        var active = 0, inbox = 0, archived = 0
+        var active = 0, archived = 0
         for row in rows {
             switch row["status"] as String? {
             case "active": active = row["c"]
-            case "inbox": inbox = row["c"]
             case "archived": archived = row["c"]
             default: break
             }
         }
-        return (active, inbox, archived)
+        return (active, archived)
     }
 }
 

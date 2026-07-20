@@ -9,9 +9,9 @@ import Testing
         let db = try BrainDatabase.open(atPath: dir.appendingPathComponent("brain.db").path)
 
         var active = Note(type: .troubleshooting, title: "Publish stuck: stale lock", body: "Clear the lock row.", project: "etk-sandbox", tags: ["publish", "lock"])
-        var inboxed = Note(type: .learning, title: "County-b is on 7.4", body: "Check 7.4 docs.", status: .inbox)
+        var archived = Note(type: .learning, title: "County-b is on 7.4", body: "Check 7.4 docs.", status: .archived)
         try db.save(&active)
-        try db.save(&inboxed)
+        try db.save(&archived)
 
         let out = dir.appendingPathComponent("export")
         let count = try db.exportMarkdown(to: out)

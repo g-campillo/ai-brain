@@ -11,4 +11,5 @@ public enum NoteType: String, CaseIterable, Codable, Sendable {
     case snippet
     case contact           // who owns what / escalation paths
     case ticketOutcome = "ticket-outcome"
+    case sessionSummary = "session-summary"  // one /brain-save note per kept session
 }

@@ -93,6 +93,41 @@ enum BrainTools {
             ])
         ),
         Tool(
+            name: "brain_update",
+            description: """
+            Patch fields of an existing note (ids come from brain_search/brain_recent/brain_get). \
+            Prefer updating an existing note over saving a near-duplicate: append addendums, \
+            fix stale facts, close completed follow-ups, archive obsolete notes.
+            """,
+            inputSchema: .object([
+                "type": .string("object"),
+                "properties": .object([
+                    "id": .object(["type": .string("integer"), "description": .string("Note id to update.")]),
+                    "title": .object(["type": .string("string"), "description": .string("New title.")]),
+                    "body": .object(["type": .string("string"), "description": .string("New body, or text to append (see body_mode).")]),
+                    "body_mode": .object(["type": .string("string"), "description": .string("replace (default) or append — append adds body as a new paragraph.")]),
+                    "type": .object(["type": .string("string"), "description": .string("One of: \(NoteType.allCases.map(\.rawValue).joined(separator: ", ")).")]),
+                    "status": .object(["type": .string("string"), "description": .string("active or archived — archive instead of deleting; archived notes stop surfacing in search.")]),
+                    "project": .object(["type": .string("string"), "description": .string("Project slug; empty string clears.")]),
+                    "site": .object(["type": .string("string"), "description": .string("Site/env; empty string clears.")]),
+                    "jira_key": .object(["type": .string("string"), "description": .string("Related Jira ticket; empty string clears.")]),
+                    "tags": .object(["type": .string("array"), "items": .object(["type": .string("string")]), "description": .string("Replaces the whole tag list.")]),
+                ]),
+                "required": .array([.string("id")]),
+            ])
+        ),
+        Tool(
+            name: "brain_overview",
+            description: """
+            Snapshot of the knowledge base: totals, counts by type and project, embedding \
+            coverage, and the most recent notes. Use to see what the brain covers before searching.
+            """,
+            inputSchema: .object([
+                "type": .string("object"),
+                "properties": .object([:]),
+            ])
+        ),
+        Tool(
             name: "brain_recent",
             description: "List the most recently updated notes (optionally filtered by type/project/site/tag).",
             inputSchema: .object([
@@ -139,9 +174,38 @@ enum BrainTools {
                 tags: args["tags"]?.arrayValue?.compactMap(\.stringValue) ?? [],
                 jiraKey: args["jira_key"]?.stringValue
             )
-            try db.save(&note)
-            try db.indexEmbeddings(for: note, using: embedder)
+            try db.save(&note, reindexingWith: embedder)
             return "Saved note \(note.id ?? 0): \(title)"
+
+        case "brain_update":
+            guard let id = args["id"]?.intValue else { throw ToolError.missing("id") }
+            guard var note = try db.note(id: Int64(id)) else { return "No note with id \(id)." }
+            if let title = args["title"]?.stringValue { note.title = title }
+            if let body = args["body"]?.stringValue {
+                note.body = args["body_mode"]?.stringValue == "append" ? note.body + "\n\n" + body : body
+            }
+            if let rawType = args["type"]?.stringValue {
+                guard let type = NoteType(rawValue: rawType) else {
+                    throw ToolError.missing("type (one of \(NoteType.allCases.map(\.rawValue).joined(separator: ", ")))")
+                }
+                note.type = type
+            }
+            if let rawStatus = args["status"]?.stringValue {
+                guard let status = NoteStatus(rawValue: rawStatus) else {
+                    throw ToolError.missing("status (active or archived)")
+                }
+                note.status = status
+            }
+            if let value = args["project"]?.stringValue { note.project = value.isEmpty ? nil : value }
+            if let value = args["site"]?.stringValue { note.site = value.isEmpty ? nil : value }
+            if let value = args["jira_key"]?.stringValue { note.jiraKey = value.isEmpty ? nil : value }
+            if let tags = args["tags"]?.arrayValue { note.tags = tags.compactMap(\.stringValue) }
+            let textChanged = args["title"] != nil || args["body"] != nil
+            try db.save(&note, reindexingWith: textChanged ? embedder : nil)
+            return "Updated note \(id): \(note.title)" + (note.status == .archived ? " (archived)" : "")
+
+        case "brain_overview":
+            return try db.overview()
 
         case "brain_recent":
             let notes = try db.recent(args["n"]?.intValue ?? 10, filters: filters(from: args))

@@ -58,6 +58,13 @@ public struct SearchResult: Sendable {
 }
 
 extension BrainDatabase {
+    /// Save + refresh embeddings. Chunks are title-prefixed, so any title or body
+    /// change invalidates vectors; pass nil to skip reindexing.
+    public func save(_ note: inout Note, reindexingWith embedder: Embedder?) throws {
+        try save(&note)
+        if let embedder { try indexEmbeddings(for: note, using: embedder) }
+    }
+
     /// (Re)embeds a note's chunks. Call after every save that changes title/body.
     public func indexEmbeddings(for note: Note, using embedder: Embedder) throws {
         guard let id = note.id else { return }

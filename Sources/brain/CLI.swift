@@ -9,8 +9,8 @@ struct Brain: AsyncParsableCommand {
         abstract: "Persistent knowledge base for Claude — MCP server, hooks, and admin tools.",
         subcommands: [
             MCPCommand.self, SearchCommand.self, BriefCommand.self,
-            IndexCommand.self, HarvestCommand.self, InstallCommand.self,
-            ExportCommand.self,
+            IndexCommand.self, InstallCommand.self, ExportCommand.self,
+            OverviewCommand.self, DoctorCommand.self,
         ]
     )
 }
@@ -71,6 +71,18 @@ struct ExportCommand: AsyncParsableCommand {
         let db = try BrainDatabase.open()
         let count = try db.exportMarkdown(to: URL(fileURLWithPath: out))
         print("exported \(count) note(s) to \(out)")
+    }
+}
+
+struct OverviewCommand: AsyncParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "overview",
+        abstract: "Snapshot of the knowledge base: totals, breakdowns, coverage, recent notes."
+    )
+
+    func run() async throws {
+        let db = try BrainDatabase.open()
+        print(try db.overview())
     }
 }
 

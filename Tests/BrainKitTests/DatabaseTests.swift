@@ -1,4 +1,5 @@
 import Foundation
+import GRDB
 import Testing
 @testable import BrainKit
 
@@ -69,6 +70,79 @@ import Testing
 
         try db.deleteNote(id: id)
         #expect(try db.embeddings(noteID: id).isEmpty)
+    }
+
+    @Test func v2MigrationDropsInboxRowsAndTheirIndexData() throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let path = dir.appendingPathComponent("brain.db").path
+
+        // Build a v1-era database containing a legacy inbox row with FTS + embedding data.
+        let pool = try DatabasePool(path: path)
+        try BrainDatabase.migrator.migrate(pool, upTo: "v1")
+        try pool.write { db in
+            try db.execute(sql: """
+                INSERT INTO note (type, title, body, tags, source, status, createdAt, updatedAt)
+                VALUES ('learning', 'kept note', 'stays', '[]', 'manual', 'active', ?, ?),
+                       ('learning', 'pending harvest', 'zebrafish body', '[]', 'harvest', 'inbox', ?, ?)
+                """, arguments: [Date(), Date(), Date(), Date()])
+            try db.execute(sql: "INSERT INTO embedding (noteId, chunkIdx, vector, modelVersion) VALUES (2, 0, x'00000000', 'test')")
+        }
+        let ftsBefore = try pool.read { db in
+            try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM note_fts WHERE note_fts MATCH 'zebrafish'")
+        }
+        #expect(ftsBefore == 1)
+
+        // Opening the database migrates to head; v2 deletes unreviewed inbox rows.
+        let brain = try BrainDatabase.open(atPath: path)
+        let titles = try brain.pool.read { db in try String.fetchAll(db, sql: "SELECT title FROM note") }
+        #expect(titles == ["kept note"])
+        let embeddings = try brain.pool.read { db in
+            try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM embedding")
+        }
+        #expect(embeddings == 0)
+        let ftsAfter = try brain.pool.read { db in
+            try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM note_fts WHERE note_fts MATCH 'zebrafish'")
+        }
+        #expect(ftsAfter == 0)
+    }
+
+    @Test func v3MigrationCreatesRecallEventTable() throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let path = dir.appendingPathComponent("brain.db").path
+
+        // A v2-era database (pre recall log) migrates cleanly on open.
+        let pool = try DatabasePool(path: path)
+        try BrainDatabase.migrator.migrate(pool, upTo: "v2")
+
+        let brain = try BrainDatabase.open(atPath: path)
+        let table = try brain.pool.read { db in
+            try String.fetchOne(db, sql: "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'recall_event'")
+        }
+        #expect(table == "recall_event")
+    }
+
+    @Test func saveReindexingSkipsWhenNilAndReindexesOnChange() async throws {
+        let db = try tempDB()
+
+        var note = Note(type: .snippet, title: "original", body: "body text")
+        try db.save(&note)
+        let id = try #require(note.id)
+        try db.saveEmbeddings(noteID: id, vectors: [[1, 2, 3]], modelVersion: "fake")
+
+        // nil embedder: metadata-only update leaves vectors untouched.
+        note.project = "ai-brain"
+        try db.save(&note, reindexingWith: nil)
+        #expect(try db.embeddings(noteID: id) == [[1, 2, 3]])
+
+        // Real embedder: text change replaces the fake vectors.
+        note.title = "renamed"
+        let embedder = try await Embedder.ready()
+        try db.save(&note, reindexingWith: embedder)
+        let vectors = try db.embeddings(noteID: id)
+        #expect(!vectors.isEmpty)
+        #expect(vectors != [[1, 2, 3]])
     }
 
     @Test func notesNeedingEmbeddingFindsMissingAndStale() throws {

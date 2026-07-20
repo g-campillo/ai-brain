@@ -24,7 +24,7 @@ public struct BrainDatabase: Sendable {
         return BrainDatabase(pool: pool)
     }
 
-    private static var migrator: DatabaseMigrator {
+    static var migrator: DatabaseMigrator {
         var migrator = DatabaseMigrator()
         migrator.registerMigration("v1") { db in
             try db.create(table: "note") { t in
@@ -59,6 +59,26 @@ public struct BrainDatabase: Sendable {
                 t.column("vector", .blob).notNull()
                 t.column("modelVersion", .text).notNull()
                 t.primaryKey(["noteId", "chunkIdx"])
+            }
+        }
+        migrator.registerMigration("v2") { db in
+            // Approval flow removed: unreviewed harvest candidates are noise, not knowledge.
+            // FTS cleanup rides the note triggers; embeddings are deleted explicitly so the
+            // migration doesn't depend on foreign_keys pragma state.
+            try db.execute(sql: "DELETE FROM embedding WHERE noteId IN (SELECT id FROM note WHERE status = 'inbox')")
+            try db.execute(sql: "DELETE FROM note WHERE status = 'inbox'")
+        }
+        migrator.registerMigration("v3") { db in
+            try db.create(table: "recall_event") { t in
+                t.autoIncrementedPrimaryKey("id")
+                t.column("createdAt", .datetime).notNull()
+                t.column("sessionId", .text).notNull()
+                t.column("cwd", .text)
+                t.column("prompt", .text).notNull()
+                t.column("vectorMean", .double).notNull()
+                t.column("vectorStd", .double).notNull()
+                t.column("vectorCount", .integer).notNull()
+                t.column("hits", .text).notNull() // JSON [RecallEvent.Hit]
             }
         }
         return migrator

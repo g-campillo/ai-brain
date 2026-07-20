@@ -23,11 +23,6 @@ func hookLog(_ message: String) {
 struct PromptHookInput: Decodable {
     let session_id: String
     let prompt: String
-}
-
-struct StopHookInput: Decodable {
-    let session_id: String
-    let transcript_path: String
     let cwd: String?
 }
 
@@ -53,20 +48,49 @@ extension SearchCommand {
 
             let db = try BrainDatabase.open()
             let embedder = try await Embedder.ready()
-            var confident = try db.search(prompt, k: 5, embedder: embedder).highConfidenceHits()
+            let result = try db.search(prompt, k: 5, embedder: embedder)
+            let confidentIDs = Set(result.highConfidenceHits().compactMap(\.note.id))
 
             // Per-session dedupe: never inject the same note twice.
             let marker = FileManager.default.temporaryDirectory
                 .appendingPathComponent("brain-hook-\(input.session_id)")
             let seen = Set((try? String(contentsOf: marker, encoding: .utf8))?
                 .split(separator: "\n").compactMap { Int64($0) } ?? [])
-            confident.removeAll { $0.note.id.map(seen.contains) ?? true }
-            guard !confident.isEmpty else { return }
+            let injected = result.hits.filter { hit in
+                hit.note.id.map { confidentIDs.contains($0) && !seen.contains($0) } ?? false
+            }
 
-            let ids = seen.union(confident.compactMap(\.note.id))
+            // Log the decision (all candidates, gate + dedupe outcomes) before any
+            // early return; logging must never break the hook.
+            var event = RecallEvent(
+                sessionId: input.session_id,
+                cwd: input.cwd,
+                prompt: prompt,
+                vectorMean: result.vectorMean,
+                vectorStd: result.vectorStd,
+                vectorCount: result.vectorCount,
+                hits: result.hits.compactMap { hit in
+                    hit.note.id.map { id in
+                        RecallEvent.Hit(
+                            noteId: id,
+                            title: hit.note.title,
+                            rrf: hit.score,
+                            sim: hit.vectorSimilarity,
+                            matchedAllKeywords: hit.matchedAllKeywords,
+                            confident: confidentIDs.contains(id),
+                            injected: confidentIDs.contains(id) && !seen.contains(id)
+                        )
+                    }
+                }
+            )
+            try? db.logRecall(&event)
+
+            guard !injected.isEmpty else { return }
+
+            let ids = seen.union(injected.compactMap(\.note.id))
             try? ids.map(String.init).joined(separator: "\n").write(to: marker, atomically: true, encoding: .utf8)
 
-            let lines = confident.map { hit in
+            let lines = injected.map { hit in
                 "- [id \(hit.note.id ?? 0) · \(hit.note.type.rawValue)\(hit.note.site.map { " · \($0)" } ?? "")] \(hit.note.title): \(hit.snippet.replacingOccurrences(of: "\n", with: " ").prefix(200))"
             }
             let context = """
@@ -78,94 +102,9 @@ extension SearchCommand {
             """
             let output = HookOutput(hookSpecificOutput: .init(hookEventName: "UserPromptSubmit", additionalContext: context))
             print(String(data: try JSONEncoder().encode(output), encoding: .utf8) ?? "")
-            hookLog("prompt-hook: injected \(confident.count) note(s) for session \(input.session_id)")
+            hookLog("prompt-hook: injected \(injected.count) note(s) for session \(input.session_id)")
         } catch {
             hookLog("prompt-hook failed: \(error)")
-        }
-    }
-}
-
-// MARK: - Stop: brain harvest
-
-struct HarvestCommand: AsyncParsableCommand {
-    static let configuration = CommandConfiguration(
-        commandName: "harvest",
-        abstract: "Stop-hook: distill durable learnings from the session into inbox notes."
-    )
-
-    /// Minimum new transcript bytes before a harvest is worth an inference pass.
-    static let minNewBytes = 3000
-
-    @Option(help: "Debug: harvest this transcript file directly instead of reading Stop-hook JSON from stdin.")
-    var transcript: String?
-    @Flag(help: "Debug: print the distilled excerpt and candidates without saving.")
-    var dryRun = false
-
-    func run() async {
-        if let transcript {
-            await debugRun(transcriptPath: transcript)
-            return
-        }
-        do {
-            let data = try FileHandle.standardInput.readToEnd() ?? Data()
-            let input = try JSONDecoder().decode(StopHookInput.self, from: data)
-
-            guard let jsonl = try? String(contentsOfFile: input.transcript_path, encoding: .utf8) else {
-                hookLog("harvest: unreadable transcript \(input.transcript_path)")
-                return
-            }
-
-            // Stop fires after EVERY turn; only harvest when enough new content exists.
-            // Offset is in characters, consistently.
-            let marker = FileManager.default.temporaryDirectory
-                .appendingPathComponent("brain-harvest-\(input.session_id)")
-            let offset = Int((try? String(contentsOf: marker, encoding: .utf8)) ?? "") ?? 0
-            guard jsonl.count - offset >= Self.minNewBytes else { return }
-            let newSlice = String(jsonl.suffix(jsonl.count - min(offset, jsonl.count)))
-
-            let slug = input.cwd.map { ($0 as NSString).lastPathComponent }
-            var notes = try await Harvester.harvest(transcriptJSONL: newSlice, projectSlug: slug)
-            // Advance the throttle marker only after a successful inference pass —
-            // a failed harvest (e.g. model unavailable) must not skip this content forever.
-            try? String(jsonl.count).write(to: marker, atomically: true, encoding: .utf8)
-            guard !notes.isEmpty else {
-                hookLog("harvest: nothing durable in session \(input.session_id)")
-                return
-            }
-
-            let db = try BrainDatabase.open()
-            let embedder = try await Embedder.ready()
-            for i in notes.indices {
-                try db.save(&notes[i])
-                try db.indexEmbeddings(for: notes[i], using: embedder)
-            }
-            hookLog("harvest: \(notes.count) inbox candidate(s) from session \(input.session_id): \(notes.map(\.title).joined(separator: " | "))")
-        } catch {
-            hookLog("harvest failed: \(error)")
-        }
-    }
-
-    private func debugRun(transcriptPath: String) async {
-        do {
-            let jsonl = try String(contentsOfFile: transcriptPath, encoding: .utf8)
-            let excerpt = Harvester.salientExcerpt(fromJSONL: jsonl)
-            print("=== EXCERPT (\(excerpt.count) chars) ===\n\(excerpt)\n=== END EXCERPT ===")
-            let notes = try await Harvester.harvest(transcriptJSONL: jsonl, projectSlug: "debug")
-            print("=== CANDIDATES: \(notes.count) ===")
-            for note in notes {
-                print("[\(note.type.rawValue)] \(note.title)\n\(note.body)\n")
-            }
-            if !dryRun, !notes.isEmpty {
-                let db = try BrainDatabase.open()
-                let embedder = try await Embedder.ready()
-                for var note in notes {
-                    try db.save(&note)
-                    try db.indexEmbeddings(for: note, using: embedder)
-                }
-                print("saved \(notes.count) note(s)")
-            }
-        } catch {
-            print("debug harvest failed: \(error)")
         }
     }
 }

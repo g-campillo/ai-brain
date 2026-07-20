@@ -13,11 +13,11 @@ import Testing
         let db = try tempDB()
         var first = Note(type: .snippet, title: "oldest", body: "a")
         var second = Note(type: .snippet, title: "middle", body: "b")
-        var inboxed = Note(type: .learning, title: "pending", body: "c", status: .inbox)
+        var skipped = Note(type: .learning, title: "pending", body: "c", status: .archived)
         var third = Note(type: .snippet, title: "newest", body: "d")
         try db.save(&first)
         try db.save(&second)
-        try db.save(&inboxed)
+        try db.save(&skipped)
         try db.save(&third)
 
         let recent = try db.recent(2)
@@ -27,7 +27,7 @@ import Testing
         #expect(!all.contains { $0.status != .active })
     }
 
-    @Test func briefMatchesProjectSlugFromPathAndIncludesRecentRelated() throws {
+    @Test func briefContainsProjectContextOnlyAndNilWithoutContext() throws {
         let db = try tempDB()
         var context = Note(
             type: .projectContext,
@@ -49,9 +49,12 @@ import Testing
         let brief = try #require(try db.brief(forProjectPath: "/Users/gcampillo/projects/etk-sandbox"))
         #expect(brief.contains("etk-sandbox overview"))
         #expect(brief.contains("Maven multi-module"))
-        #expect(brief.contains("Sandbox deploy 403"))
+        // Recall + deliberate brain_search carry everything that isn't project context.
+        #expect(!brief.contains("Sandbox deploy 403"))
         #expect(!brief.contains("Other project note"))
 
+        // A project with notes but no project-context note briefs nothing.
+        #expect(try db.brief(forProjectPath: "/Users/gcampillo/projects/vpn") == nil)
         #expect(try db.brief(forProjectPath: "/somewhere/never-seen") == nil)
     }
 }

@@ -11,14 +11,8 @@ struct MainWindow: View {
             List(selection: $store.sidebar) {
                 Section("Browse") {
                     Label("All Notes", systemImage: "tray.full").tag(SidebarItem.all)
-                    Label {
-                        Text("Inbox")
-                    } icon: {
-                        Image(systemName: "tray.and.arrow.down")
-                    }
-                    .badge(store.inboxCount)
-                    .tag(SidebarItem.inbox)
                     Label("Search Playground", systemImage: "scope").tag(SidebarItem.playground)
+                    Label("Recall", systemImage: "clock.arrow.circlepath").tag(SidebarItem.recall)
                 }
                 Section("Types") {
                     ForEach(NoteType.allCases, id: \.self) { type in
@@ -33,6 +27,8 @@ struct MainWindow: View {
         } detail: {
             if store.sidebar == .playground {
                 ContentUnavailableView("Playground runs in the middle column", systemImage: "scope")
+            } else if store.sidebar == .recall {
+                ContentUnavailableView("Recall log lists in the middle column", systemImage: "clock.arrow.circlepath")
             } else if let note = store.selectedNote() {
                 NoteDetailView(note: note)
             } else {
@@ -57,8 +53,8 @@ struct MainWindow: View {
         switch store.sidebar {
         case .playground:
             PlaygroundView()
-        case .inbox:
-            InboxView()
+        case .recall:
+            RecallView()
         default:
             Table(store.notes, selection: $store.selection, sortOrder: $sortOrder) {
                 TableColumn("Title", value: \.title)

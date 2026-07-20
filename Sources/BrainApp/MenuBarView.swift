@@ -39,15 +39,6 @@ struct MenuBarView: View {
                     openWindow(id: "main")
                     NSApp.activate()
                 }
-                if store.inboxCount > 0 {
-                    Button("Inbox (\(store.inboxCount))") {
-                        store.sidebar = .inbox
-                        store.refresh()
-                        openWindow(id: "main")
-                        NSApp.activate()
-                    }
-                    .buttonStyle(.borderedProminent)
-                }
                 Spacer()
                 Button("Quit") { NSApp.terminate(nil) }
                     .buttonStyle(.plain)
