@@ -35,6 +35,9 @@ struct MenuBarView: View {
             }
 
             HStack {
+                Button("Ask Claude  ⌥Space") {
+                    AskPanelController.shared.show()
+                }
                 Button("Open Brain") {
                     openWindow(id: "main")
                     NSApp.activate()

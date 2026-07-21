@@ -3,6 +3,7 @@ import SwiftUI
 
 @main
 struct BrainApp: App {
+    @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @State private var store = BrainStore()
     @Environment(\.scenePhase) private var scenePhase
 
