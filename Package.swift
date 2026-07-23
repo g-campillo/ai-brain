@@ -31,5 +31,6 @@ let package = Package(
         ),
         .executableTarget(name: "BrainApp", dependencies: ["BrainKit"]),
         .testTarget(name: "BrainKitTests", dependencies: ["BrainKit"]),
+        .testTarget(name: "BrainAppTests", dependencies: ["BrainApp"]),
     ]
 )

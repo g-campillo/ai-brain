@@ -18,6 +18,54 @@ final class AskSession {
     private(set) var status: String?
     private(set) var error: String?
 
+    /// GUI-test hook (BRAIN_ASK_TEST): markdown-rich transcript exercising every
+    /// MarkdownText block kind, without touching the claude CLI or the keyboard.
+    /// BRAIN_ASK_TEST=short seeds one brief exchange (underfull-panel case).
+    func seedCannedTranscript() {
+        if ProcessInfo.processInfo.environment["BRAIN_ASK_TEST"] == "short" {
+            turns = [
+                Turn(role: .user, text: "where is the server.xml file stored"),
+                Turn(role: .assistant, text: """
+                    **server.xml** for the entellitrak sandbox lives at `config/server.xml` in the repo, \
+                    which gets copied by the Dockerfile into the container at \
+                    `/usr/local/tomcat/conf/server.xml` (image `tomcat:10.1-jdk17-temurin`) [id 27].
+
+                    Related: there's no `datasource.xml` in 24.x — its successor is `context/entellitrak.xml`.
+                    """),
+            ]
+            return
+        }
+        turns = [
+            Turn(role: .user, text: "where is the server.xml file stored within an entellitrak container?"),
+            Turn(role: .assistant, text: """
+                **server.xml** is the global Tomcat config, so its location is standard Tomcat, \
+                not app-specific — see [id 15 · etk-sandbox]:
+
+                ```
+                $CATALINA_BASE/conf/server.xml
+                ```
+
+                - In the etk-sandbox image `CATALINA_HOME=/usr/local/tomcat`, no separate base
+                - The per-app context descriptor is `conf/Catalina/localhost/entellitrak.xml`
+                - Real connector tuning happens here, not in `application.yml`
+
+                > Most Spring `server.*` yml properties are dead in this WAR-on-Tomcat setup.
+                """),
+            Turn(role: .user, text: "show me a snippet to read it"),
+            Turn(role: .assistant, text: """
+                ```swift
+                let path = "/usr/local/tomcat/conf/server.xml"
+                let xml = try String(contentsOfFile: path, encoding: .utf8)
+                print(xml.prefix(200))
+                ```
+
+                1. Resolve `$CATALINA_BASE` first (it can differ from `CATALINA_HOME`)
+                2. Read the file
+                3. Look for the `<Connector>` element
+                """),
+        ]
+    }
+
     private var sessionId: String?
     private var process: Process?
     private var readTask: Task<Void, Never>?
@@ -50,7 +98,7 @@ final class AskSession {
         You answer questions from the user's personal "brain" knowledge base. \
         Always call brain_search first (and brain_get for full note bodies) before answering. \
         Be concise. Cite supporting notes inline like [id 42 · title]. \
-        Prefer plain prose with inline markdown (bold, `code`); avoid headings. \
+        Use markdown lists and fenced code blocks when they help; avoid headings unless the answer is long. \
         If the brain has nothing relevant, say so briefly.
         """
 

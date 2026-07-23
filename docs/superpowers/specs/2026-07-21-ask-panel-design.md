@@ -25,7 +25,7 @@ Verified up front: claude CLI v2.1.216 supports `--include-partial-messages`, `-
 
 ## Key mechanics
 
-**Panel**: `styleMask [.borderless, .nonactivatingPanel]` — becomes key *without activating the app* (frontmost app keeps its menu bar). `level .floating`, joins all spaces + fullscreen aux, clear background (SwiftUI draws `.regularMaterial` rounded 16), `hidesOnDeactivate = false` (NSPanel defaults true). Fresh `AskSession` + fresh `NSHostingView` per summon — clean thread per spec, reliable `@FocusState` seeding via `.onAppear`.
+**Panel**: `styleMask [.borderless, .nonactivatingPanel]` — becomes key *without activating the app* (frontmost app keeps its menu bar). `level .floating`, joins all spaces + fullscreen aux, clear background (SwiftUI draws Liquid Glass — `.glassEffect(.regular)` rounded 28, content clipped to the same shape), `hasShadow = false` — the glass backdrop writes alpha across the whole rect, so AppKit would cast a rectangular shadow that shows as square plates through the corner cutouts (NSGlassEffectView was tried instead: doesn't round its corners or size its contentView), `hidesOnDeactivate = false` (NSPanel defaults true). Fresh `AskSession` + fresh `NSHostingView` per summon — clean thread per spec, reliable `@FocusState` seeding via `.onAppear`.
 
 **claude invocation** (`AskSession.ask`): binary + PATH resolved once per launch via `/bin/zsh -l -c` (Finder PATH is bare); prompt via stdin (then close stdin — claude hangs otherwise); args:
 
@@ -34,7 +34,7 @@ Verified up front: claude CLI v2.1.216 supports `--include-partial-messages`, `-
 --model <alias> [--resume <sessionId>]
 --tools ""            (no built-ins; MCP tools unaffected)
 --allowedTools mcp__brain__brain_search,mcp__brain__brain_get,mcp__brain__brain_recent,mcp__brain__brain_overview
---append-system-prompt <answer-from-brain, cite [id · title], inline markdown>
+--append-system-prompt <answer-from-brain, cite [id · title], lists/code fences ok>
 --max-turns 16
 ```
 
@@ -42,7 +42,9 @@ Read-only brain tools only — the palette can never write notes.
 
 **Streaming**: `FileHandle.bytes.lines` in MainActor-inherited Tasks (stderr drained concurrently to a 2000-char tail — prevents pipe-full deadlock). Tolerant per-line decode: every event's `session_id` stored (latest wins — resume forks), `stream_event` text deltas append live, `tool_use` → "Searching brain…" status, `result` replaces accumulated text (authoritative final answer) or surfaces `is_error`. Process death without `result` → stderr tail as error.
 
-**Rendering**: same inline-only `AttributedString(markdown:)` pattern as `NoteDetailView`; system prompt steers Claude toward inline-friendly output. Upgrade path if it grates: block parsing via `.full` — deliberately skipped.
+**Rendering**: block-level markdown via `MarkdownBlocks.swift` (`MarkdownText`): `AttributedString(markdown:, .full)` split into blocks by `PresentationIntent` identity — paragraphs, headings, fenced code (fill-backed, wraps), bullet/ordered lists, block quotes; inline styling rides along as `inlinePresentationIntent`. Transcript is a Q&A document flow (tinted `arrow.turn.down.right` question rows, full-width answers, 14pt exchange gap), not chat bubbles. Streaming re-parses per delta (few KB, sub-ms); an unterminated fence is valid CommonMark so partial code renders as a growing block. Simplifications: tables → paragraphs, nested lists lose indentation. `NoteDetailView` still uses the old inline-only helper — `MarkdownText` can replace it later.
+
+**GUI-test hook**: launching with `BRAIN_ASK_TEST=1` summons the panel and seeds a canned markdown-rich transcript (`AskSession.seedCannedTranscript`) — visual verification without synthetic ⌥Space (Chrome reacts to it) or fake typing.
 
 ## Edge cases
 

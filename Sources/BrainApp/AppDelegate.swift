@@ -28,5 +28,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             NSLog("Brain: ⌥Space hotkey registration failed (\(status))")
         }
         hotKeyRef = ref
+
+        // GUI-test hook: BRAIN_ASK_TEST=1 summons the panel with a canned transcript.
+        // Synthetic input is off the table here — a synthesized ⌥Space is seen by the
+        // frontmost app (Chrome opens claude.ai), and fake typing can leak into a live
+        // terminal — so visual checks go through this instead.
+        if ProcessInfo.processInfo.environment["BRAIN_ASK_TEST"] != nil {
+            AskPanelController.shared.showSeeded()
+        }
     }
 }

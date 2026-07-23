@@ -35,7 +35,11 @@ final class AskPanelController: NSObject, NSWindowDelegate {
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         panel.isOpaque = false
         panel.backgroundColor = .clear // SwiftUI draws the rounded material
-        panel.hasShadow = true
+        // No window shadow, deliberately: SwiftUI .glassEffect writes backdrop alpha
+        // across the whole rect, so AppKit computes a RECTANGULAR shadow that shows
+        // as dark square plates through the rounded-corner cutouts. (NSGlassEffectView
+        // was tried instead and neither rounded its corners nor sized its contentView.)
+        panel.hasShadow = false
         panel.hidesOnDeactivate = false // NSPanel default is true — would vanish wrongly
         panel.isReleasedWhenClosed = false
         panel.animationBehavior = .utilityWindow
@@ -57,6 +61,15 @@ final class AskPanelController: NSObject, NSWindowDelegate {
         panel.contentView = NSHostingView(rootView: AskView(session: fresh))
         place(height: Self.compactHeight)
         panel.makeKeyAndOrderFront(nil) // deliberately NO NSApp.activate()
+    }
+
+    /// GUI-test entry (BRAIN_ASK_TEST): summon, then seed after the view mounts so
+    /// the empty→non-empty change fires the expansion trigger like a real ask.
+    func showSeeded() {
+        show()
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { [weak self] in
+            self?.session?.seedCannedTranscript()
+        }
     }
 
     func hide() {

@@ -10,7 +10,7 @@ struct AskView: View {
         VStack(spacing: 0) {
             HStack(spacing: 8) {
                 Image(systemName: "brain")
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(.tint)
                 TextField("Ask your brain…", text: $input)
                     .textFieldStyle(.plain)
                     .font(.title2)
@@ -27,22 +27,30 @@ struct AskView: View {
                 }
                 .labelsHidden()
                 .fixedSize()
+                .controlSize(.small)
             }
-            .padding(16)
+            .padding(.horizontal, 20)
+            .padding(.vertical, 16)
 
             if !session.turns.isEmpty {
                 Divider()
                 ScrollView {
-                    VStack(alignment: .leading, spacing: 12) {
+                    VStack(alignment: .leading, spacing: 10) {
                         ForEach(session.turns) { turn in
                             switch turn.role {
                             case .user:
-                                Text(turn.text)
-                                    .font(.callout)
-                                    .foregroundStyle(.secondary)
+                                HStack(alignment: .firstTextBaseline, spacing: 6) {
+                                    Image(systemName: "arrow.turn.down.right")
+                                        .foregroundStyle(.tint)
+                                        .imageScale(.small)
+                                    Text(turn.text)
+                                        .font(.callout.weight(.semibold))
+                                        .foregroundStyle(.secondary)
+                                }
+                                .padding(.top, turn.id == session.turns.first?.id ? 0 : 14) // between-exchange gap
                             case .assistant:
                                 if !turn.text.isEmpty {
-                                    Text(rendered(turn.text))
+                                    MarkdownText(markdown: turn.text)
                                         .textSelection(.enabled)
                                 }
                             }
@@ -60,17 +68,22 @@ struct AskView: View {
                         }
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(16)
+                    .padding(.horizontal, 20)
+                    .padding(.top, 12)
+                    .padding(.bottom, 16)
                 }
-                .defaultScrollAnchor(.bottom)
+                .defaultScrollAnchor(.top, for: .alignment) // underfull content reads from the top
+                .defaultScrollAnchor(.bottom, for: .initialOffset)
+                .defaultScrollAnchor(.bottom, for: .sizeChanges) // overflow: stick to the streaming tail
                 Text("esc to close · ⌥space")
                     .font(.caption2)
                     .foregroundStyle(.tertiary)
-                    .padding(.bottom, 6)
+                    .padding(.bottom, 10)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16))
+        .clipShape(RoundedRectangle(cornerRadius: 28))
+        .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 28))
         .onAppear {
             // Fresh hosting view per summon; the async hop makes focus stick.
             DispatchQueue.main.async { focused = true }
@@ -85,12 +98,5 @@ struct AskView: View {
         guard !question.isEmpty else { return }
         input = "" // field stays focused for follow-ups
         session.ask(question, model: model)
-    }
-
-    private func rendered(_ markdown: String) -> AttributedString {
-        (try? AttributedString(
-            markdown: markdown,
-            options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace)
-        )) ?? AttributedString(markdown)
     }
 }
