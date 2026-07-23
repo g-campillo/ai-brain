@@ -12,6 +12,7 @@ struct MCPCommand: AsyncParsableCommand {
     func run() async throws {
         let db = try BrainDatabase.open()
         let embedder = try await Embedder.ready()
+        _ = try? db.reconcile(embedder: embedder)  // sync the index to the vault on startup
 
         let server = Server(
             name: "brain",
@@ -165,7 +166,7 @@ enum BrainTools {
             guard let rawType = args["type"]?.stringValue, let type = NoteType(rawValue: rawType) else {
                 throw ToolError.missing("type (one of \(NoteType.allCases.map(\.rawValue).joined(separator: ", ")))")
             }
-            var note = Note(
+            let note = Note(
                 type: type,
                 title: title,
                 body: body,
@@ -174,8 +175,8 @@ enum BrainTools {
                 tags: args["tags"]?.arrayValue?.compactMap(\.stringValue) ?? [],
                 jiraKey: args["jira_key"]?.stringValue
             )
-            try db.save(&note, reindexingWith: embedder)
-            return "Saved note \(note.id ?? 0): \(title)"
+            let saved = try db.upsertToVault(note, embedder: embedder)
+            return "Saved note \(saved.id ?? 0): \(title)"
 
         case "brain_update":
             guard let id = args["id"]?.intValue else { throw ToolError.missing("id") }
@@ -201,8 +202,8 @@ enum BrainTools {
             if let value = args["jira_key"]?.stringValue { note.jiraKey = value.isEmpty ? nil : value }
             if let tags = args["tags"]?.arrayValue { note.tags = tags.compactMap(\.stringValue) }
             let textChanged = args["title"] != nil || args["body"] != nil
-            try db.save(&note, reindexingWith: textChanged ? embedder : nil)
-            return "Updated note \(id): \(note.title)" + (note.status == .archived ? " (archived)" : "")
+            let saved = try db.upsertToVault(note, embedder: textChanged ? embedder : nil)
+            return "Updated note \(id): \(saved.title)" + (saved.status == .archived ? " (archived)" : "")
 
         case "brain_overview":
             return try db.overview()

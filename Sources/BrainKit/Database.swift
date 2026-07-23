@@ -1,10 +1,13 @@
 import Foundation
 import GRDB
 
-/// Single source of truth: an embedded SQLite database (WAL) shared by the app,
-/// the MCP server, and hook CLI processes.
+/// A rebuildable search index (FTS5 + chunk embeddings) over the Obsidian vault,
+/// which is the source of truth. Shared by the MCP server and hook CLI processes;
+/// `reconcile`/`reindex` keep it in sync with the vault's markdown files.
 public struct BrainDatabase: Sendable {
     public let pool: DatabasePool
+    /// The SQLite file backing `pool`; needed for on-disk backups before migration.
+    public let path: String
 
     /// Overridable via BRAIN_DB for tests and side-by-side experiments.
     public static let defaultPath = ProcessInfo.processInfo.environment["BRAIN_DB"]
@@ -21,7 +24,7 @@ public struct BrainDatabase: Sendable {
         config.busyMode = .timeout(5)
         let pool = try DatabasePool(path: path, configuration: config)
         try migrator.migrate(pool)
-        return BrainDatabase(pool: pool)
+        return BrainDatabase(pool: pool, path: path)
     }
 
     static var migrator: DatabaseMigrator {
@@ -80,6 +83,16 @@ public struct BrainDatabase: Sendable {
                 t.column("vectorCount", .integer).notNull()
                 t.column("hits", .text).notNull() // JSON [RecallEvent.Hit]
             }
+        }
+        migrator.registerMigration("v4-vault-index") { db in
+            // The vault (markdown files) is now the source of truth; these columns
+            // let the index track which file each note came from and whether its
+            // content changed, so reconcile can skip unchanged files.
+            try db.alter(table: "note") { t in
+                t.add(column: "path", .text)
+                t.add(column: "contentHash", .text)
+            }
+            try db.create(indexOn: "note", columns: ["path"])
         }
         return migrator
     }

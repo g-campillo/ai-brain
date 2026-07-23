@@ -1,47 +1,18 @@
+import AppKit
 import BrainKit
 import SwiftUI
 
 struct MenuBarView: View {
-    @Environment(BrainStore.self) private var store
-    @Environment(\.openWindow) private var openWindow
-    @State private var query = ""
-    @State private var hits: [SearchHit] = []
-
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            TextField("Search the brain…", text: $query)
-                .textFieldStyle(.roundedBorder)
-                .onSubmit { runSearch() }
-
-            if !hits.isEmpty {
-                ForEach(hits, id: \.note.id) { hit in
-                    Button {
-                        if let id = hit.note.id { store.selection = [id] }
-                        store.sidebar = .all
-                        store.refresh()
-                        openWindow(id: "main")
-                        NSApp.activate()
-                    } label: {
-                        VStack(alignment: .leading) {
-                            Text(hit.note.title).lineLimit(1)
-                            Text(hit.snippet).font(.caption).foregroundStyle(.secondary).lineLimit(1)
-                        }
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                }
-                Divider()
+            Button("Ask Claude  ⌥Space") {
+                AskPanelController.shared.show()
             }
-
+            Divider()
+            Button("Open Vault Folder") {
+                NSWorkspace.shared.open(Vault.defaultURL)
+            }
             HStack {
-                Button("Ask Claude  ⌥Space") {
-                    AskPanelController.shared.show()
-                }
-                Button("Open Brain") {
-                    openWindow(id: "main")
-                    NSApp.activate()
-                }
                 Spacer()
                 Button("Quit") { NSApp.terminate(nil) }
                     .buttonStyle(.plain)
@@ -49,13 +20,6 @@ struct MenuBarView: View {
             }
         }
         .padding(12)
-        .frame(width: 340)
-        .onAppear { store.refresh() }
-    }
-
-    private func runSearch() {
-        Task {
-            hits = Array((await store.playgroundSearch(query))?.hits.prefix(5) ?? [])
-        }
+        .frame(width: 260)
     }
 }

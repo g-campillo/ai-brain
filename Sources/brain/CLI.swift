@@ -11,6 +11,7 @@ struct Brain: AsyncParsableCommand {
             MCPCommand.self, SearchCommand.self, BriefCommand.self,
             IndexCommand.self, InstallCommand.self, ExportCommand.self,
             OverviewCommand.self, DoctorCommand.self,
+            MigrateCommand.self, ReindexCommand.self,
         ]
     )
 }

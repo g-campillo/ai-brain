@@ -48,6 +48,7 @@ extension SearchCommand {
 
             let db = try BrainDatabase.open()
             let embedder = try await Embedder.ready()
+            _ = try? db.reconcile(embedder: embedder)  // pick up any Obsidian edits since the last prompt
             let result = try db.search(prompt, k: 5, embedder: embedder)
             let confidentIDs = Set(result.highConfidenceHits().compactMap(\.note.id))
 

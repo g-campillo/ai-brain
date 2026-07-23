@@ -74,6 +74,12 @@ struct DoctorCommand: AsyncParsableCommand {
             check("database", false, "\(BrainDatabase.defaultPath): \(error)")
         }
 
+        // 5b. Vault — the source of truth the index is rebuilt from.
+        let vaultURL = Vault.defaultURL
+        let noteFiles = (try? Vault.list(vaultURL).count) ?? 0
+        check("vault", FileManager.default.fileExists(atPath: vaultURL.path) && noteFiles > 0,
+              "\(vaultURL.path) (\(noteFiles) note file(s))")
+
         // 6-7. Embedding model + coverage
         do {
             let embedder = try await Embedder.ready()
