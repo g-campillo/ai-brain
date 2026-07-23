@@ -1,5 +1,6 @@
 import AppKit
 import Carbon.HIToolbox
+import ServiceManagement
 
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
@@ -28,6 +29,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             NSLog("Brain: ⌥Space hotkey registration failed (\(status))")
         }
         hotKeyRef = ref
+
+        // Register as a login item once, so ⌥Space works after a reboot without a
+        // manual Settings toggle. One-shot flag keeps it idempotent; the user can
+        // still disable it permanently in Settings (same SMAppService the toggle reads).
+        if !UserDefaults.standard.bool(forKey: "didAutoRegisterLoginItem") {
+            try? SMAppService.mainApp.register()
+            UserDefaults.standard.set(true, forKey: "didAutoRegisterLoginItem")
+        }
 
         // GUI-test hook: BRAIN_ASK_TEST=1 summons the panel with a canned transcript.
         // Synthetic input is off the table here — a synthesized ⌥Space is seen by the

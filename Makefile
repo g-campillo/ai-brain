@@ -6,6 +6,16 @@ test: ; $(SWIFT) test
 release: ; $(SWIFT) build -c release
 install: release ; .build/release/brain install
 
+# One-command fresh-Mac setup: preflight -> build -> wire Claude Code
+# (MCP + SessionStart/UserPromptSubmit hooks + skill + recall rule) -> install
+# app -> provision vault -> verify. See scripts/setup.sh.
+bootstrap: ; @bash scripts/setup.sh
+
+# Health + data conveniences (invoke through the same .build path we register,
+# so doctor's registered-vs-running check agrees).
+doctor: release ; .build/release/brain doctor
+reindex: release ; .build/release/brain reindex
+
 icon:
 	$(SWIFT) Resources/Icon/render-layers.swift Resources/Icon/Brain.icon/Assets
 	rm -rf .build/icon
@@ -25,4 +35,4 @@ install-app: app
 	ditto Brain.app /Applications/Brain.app
 	@echo "installed /Applications/Brain.app"
 
-.PHONY: build test release install icon app install-app
+.PHONY: build test release install bootstrap doctor reindex icon app install-app
